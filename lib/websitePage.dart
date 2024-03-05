@@ -233,7 +233,7 @@ class _MyWebsiteState extends State<MyWebsite> {
                                           ? Colors.white
                                           : Color(0xffe40046),
                                     ),
-                                    child: Text("Snapdeal"),
+                                    child: Text("Meesho"),
                                   ),
                                   SizedBox(width: 10),
                                   ElevatedButton(
