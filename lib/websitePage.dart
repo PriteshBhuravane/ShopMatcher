@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 
@@ -24,9 +24,9 @@ class _MyWebsiteState extends State<MyWebsite> with TickerProviderStateMixin {
   double _progress = 0;
   int _selectedPlatform = 0;
   
-  late InAppWebViewController amazonWebViewController;
-  late InAppWebViewController flipkartWebViewController;
-  late InAppWebViewController snapdealWebViewController;
+  late WebViewController amazonWebViewController;
+  late WebViewController flipkartWebViewController;
+  late WebViewController snapdealWebViewController;
   late TextEditingController _textEditingController;
   late AnimationController _buttonAnimationController;
 
@@ -48,6 +48,68 @@ class _MyWebsiteState extends State<MyWebsite> with TickerProviderStateMixin {
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
     ));
+
+    _initializeWebViewControllers();
+  }
+
+  void _initializeWebViewControllers() {
+    // Initialize Flipkart WebView
+    flipkartWebViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (int progress) {
+            setState(() => _progress = progress / 100);
+          },
+          onPageFinished: (String url) {
+            setState(() => _progress = 1.0);
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(flipkartUrl));
+
+    // Initialize Amazon WebView
+    amazonWebViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) async {
+            String currentUrl = request.url;
+            String actualUrl = await _getUrlFromURL(currentUrl);
+            
+            if (_isProductUrl(actualUrl)) {
+              if (!actualUrl.contains("tag=${AppConstants.amazonAffiliateTag}")) {
+                String modifiedUrl = '$actualUrl&tag=${AppConstants.amazonAffiliateTag}';
+                amazonWebViewController.loadRequest(Uri.parse(modifiedUrl));
+                return NavigationDecision.prevent;
+              }
+            }
+            return NavigationDecision.navigate;
+          },
+          onProgress: (int progress) {
+            setState(() => _progress = progress / 100);
+          },
+          onPageFinished: (String url) {
+            setState(() => _progress = 1.0);
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(amazonUrl));
+
+    // Initialize Snapdeal WebView
+    snapdealWebViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (int progress) {
+            setState(() => _progress = progress / 100);
+          },
+          onPageFinished: (String url) {
+            setState(() => _progress = 1.0);
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(snapdealUrl));
   }
 
   @override
@@ -117,9 +179,9 @@ class _MyWebsiteState extends State<MyWebsite> with TickerProviderStateMixin {
 
     final searchUrls = _buildSearchUrls(query);
     
-    amazonWebViewController.loadUrl(urlRequest: URLRequest(url: searchUrls[1]));
-    flipkartWebViewController.loadUrl(urlRequest: URLRequest(url: searchUrls[0]));
-    snapdealWebViewController.loadUrl(urlRequest: URLRequest(url: searchUrls[2]));
+    amazonWebViewController.loadRequest(searchUrls[1]);
+    flipkartWebViewController.loadRequest(searchUrls[0]);
+    snapdealWebViewController.loadRequest(searchUrls[2]);
 
     _textEditingController.clear();
     FocusScope.of(context).unfocus();
@@ -167,23 +229,32 @@ class _MyWebsiteState extends State<MyWebsite> with TickerProviderStateMixin {
     return url.contains('/dp/');
   }
 
+  Future<bool> _onWillPop() async {
+    final controllers = [
+      flipkartWebViewController,
+      amazonWebViewController,
+      snapdealWebViewController,
+    ];
+
+    final currentController = controllers[_selectedPlatform];
+    if (await currentController.canGoBack()) {
+      currentController.goBack();
+      return false;
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        final controllers = [
-          flipkartWebViewController,
-          amazonWebViewController,
-          snapdealWebViewController,
-        ];
-
-        for (var controller in controllers) {
-          if (await controller.canGoBack()) {
-            controller.goBack();
-            return false;
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (!didPop) {
+          final shouldPop = await _onWillPop();
+          if (shouldPop && context.mounted) {
+            Navigator.of(context).pop();
           }
         }
-        return true;
       },
       child: Scaffold(
         backgroundColor: AppConstants.backgroundColor,
@@ -277,54 +348,13 @@ class _MyWebsiteState extends State<MyWebsite> with TickerProviderStateMixin {
   List<Widget> _buildWebViews() {
     return [
       // Flipkart WebView
-      InAppWebView(
-        initialUrlRequest: URLRequest(url: Uri.parse(flipkartUrl)),
-        onWebViewCreated: (controller) => flipkartWebViewController = controller,
-        onProgressChanged: (controller, progress) {
-          setState(() => _progress = progress / 100);
-        },
-        onLoadStop: (controller, url) {
-          setState(() => _progress = 1.0);
-        },
-      ),
+      WebViewWidget(controller: flipkartWebViewController),
       
       // Amazon WebView
-      InAppWebView(
-        initialUrlRequest: URLRequest(url: Uri.parse(amazonUrl)),
-        onWebViewCreated: (controller) => amazonWebViewController = controller,
-        onLoadStart: (controller, url) async {
-          if (url != null) {
-            String currentUrl = url.toString();
-            String actualUrl = await _getUrlFromURL(currentUrl);
-            
-            if (_isProductUrl(actualUrl)) {
-              if (!actualUrl.contains("tag=${AppConstants.amazonAffiliateTag}")) {
-                String modifiedUrl = '$actualUrl&tag=${AppConstants.amazonAffiliateTag}';
-                controller.stopLoading();
-                controller.loadUrl(urlRequest: URLRequest(url: Uri.parse(modifiedUrl)));
-              }
-            }
-          }
-        },
-        onProgressChanged: (controller, progress) {
-          setState(() => _progress = progress / 100);
-        },
-        onLoadStop: (controller, url) {
-          setState(() => _progress = 1.0);
-        },
-      ),
+      WebViewWidget(controller: amazonWebViewController),
       
       // Snapdeal WebView
-      InAppWebView(
-        initialUrlRequest: URLRequest(url: Uri.parse(snapdealUrl)),
-        onWebViewCreated: (controller) => snapdealWebViewController = controller,
-        onProgressChanged: (controller, progress) {
-          setState(() => _progress = progress / 100);
-        },
-        onLoadStop: (controller, url) {
-          setState(() => _progress = 1.0);
-        },
-      ),
+      WebViewWidget(controller: snapdealWebViewController),
     ];
   }
 }
